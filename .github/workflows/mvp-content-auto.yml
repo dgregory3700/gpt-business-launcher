@@ -2,7 +2,10 @@ name: MVP Content Auto
 
 on:
   workflow_dispatch:
-
+  
+permissions:
+  contents: write   # <-- allow push
+  
 jobs:
   generate:
     runs-on: ubuntu-latest
