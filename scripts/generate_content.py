@@ -1,5 +1,5 @@
 import os, pathlib, datetime
-from scripts.gpt_call import chat  # import from scripts/ package
+from scripts.gpt_call import chat  # import from our helper
 
 OUTPUT_DIR = pathlib.Path("output/content")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -16,10 +16,12 @@ messages = [
     {"role": "user", "content": prompt}
 ]
 
+# Use the chat() function from gpt_call.py
 md = chat(messages)
 
+# Save the result to a Markdown file with a timestamp
 ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
 out_path = OUTPUT_DIR / f"content-{ts}.md"
 out_path.write_text(md, encoding="utf-8")
 
-print(f"Saved {out_path}")
+print(f"✅ Saved generated content to {out_path}")
