@@ -1,27 +1,39 @@
 import os, pathlib, datetime
-from scripts.gpt_call import chat  # import from our helper
+from scripts.gpt_call import chat
+from scripts.prompt_loader import load_prompt
 
-OUTPUT_DIR = pathlib.Path("output/content")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# Where we'll store generated files
+OUTPUT_ROOT = pathlib.Path("output/content")
 
-TOPIC = "a first-week content plan for a new AI-powered micro-SaaS"
+# Topic comes from the workflow input (fallback provided)
+TOPIC = os.getenv("TOPIC", "AI-powered micro-SaaS for niche creators")
+PROMPT_PATH = "prompts/F_landing_page.md"
 
-prompt = (
-    f"Create 2 short, SEO-friendly blog outlines about {TOPIC}. "
-    "Return valid Markdown with H2/H3 sections and bullet points."
-)
+# Load the prompt from file and substitute variables
+prompt = load_prompt(PROMPT_PATH, TOPIC=TOPIC)
 
 messages = [
-    {"role": "system", "content": "You are an SEO-savvy content creator for startups."},
-    {"role": "user", "content": prompt}
+    {"role": "system", "content": "You are an SEO-savvy copywriter for startups."},
+    {"role": "user", "content": prompt},
 ]
 
-# Use the chat() function from gpt_call.py
 md = chat(messages)
 
-# Save the result to a Markdown file with a timestamp
-ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-out_path = OUTPUT_DIR / f"content-{ts}.md"
-out_path.write_text(md, encoding="utf-8")
+# Dated directory: output/content/YYYY/MM/DD/
+stamp = datetime.datetime.utcnow()
+dated_dir = OUTPUT_ROOT / stamp.strftime("%Y/%m/%d")
+dated_dir.mkdir(parents=True, exist_ok=True)
 
-print(f"✅ Saved generated content to {out_path}")
+# Optional: YAML front matter for downstream tools
+front_matter = f"""---
+title: "Landing page draft for {TOPIC}"
+topic: "{TOPIC}"
+model: "gpt-4o-mini"
+generated_at_utc: "{stamp.isoformat()}Z"
+---
+"""
+
+outfile = dated_dir / f"landing-{stamp.strftime('%Y%m%d-%H%M%S')}.md"
+outfile.write_text(front_matter + "\n" + md, encoding="utf-8")
+print(f"✅ Saved {outfile}")
+
