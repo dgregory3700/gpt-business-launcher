@@ -70,7 +70,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python scripts/validate_content.py
 
-            - name: Commit validation outputs
+      - name: Commit validation outputs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
