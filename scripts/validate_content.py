@@ -1,9 +1,7 @@
 # scripts/validate_content.py
-import json, glob, re
-import pathlib, datetime as dt
+import re, glob, pathlib, datetime as dt
 from scripts.gpt_call import chat
 
-# Find newest generated Markdown anywhere under output/content/**/**
 CONTENT_GLOB = "output/content/**/*.md"
 
 def newest_markdown() -> pathlib.Path | None:
@@ -15,16 +13,11 @@ if not md_path:
     print("ℹ️ No generated content found. Skipping validation.")
     raise SystemExit(0)
 
-# Infer date + topic from the content file path:
-# output/content/YYYY/MM/DD/<topic-slug>/<file>.md
 parts = md_path.parts
-# Defensive defaults
 year, month, day, topic_slug = "9999", "99", "99", "topic"
 try:
-    # .../output/content/ YYYY  MM  DD  topic  file
     idx = parts.index("content")
-    year, month, day = parts[idx+1], parts[idx+2], parts[idx+3]
-    topic_slug = parts[idx+4]
+    year, month, day, topic_slug = parts[idx+1], parts[idx+2], parts[idx+3], parts[idx+4]
 except Exception:
     pass
 
@@ -35,7 +28,7 @@ reviews_dir.mkdir(parents=True, exist_ok=True)
 
 text = md_path.read_text(encoding="utf-8")
 
-# -------- Simple quantitative checks (very lightweight) --------
+# --- quick quantitative checks
 word_count = len(re.findall(r"\w+", text))
 h2_count   = len(re.findall(r"(?m)^##\s", text))
 h3_count   = len(re.findall(r"(?m)^###\s", text))
@@ -51,33 +44,43 @@ score = max(0, min(100, score))
 now = dt.datetime.utcnow()
 stamp = now.strftime("%Y%m%d-%H%M%S")
 
-# -------- JSON metrics report --------
-report = {
-    "source_file": str(md_path),
-    "topic_slug": topic_slug,
-    "date": f"{year}-{month}-{day}",
-    "word_count": word_count,
-    "h2_count": h2_count,
-    "h3_count": h3_count,
-    "bullet_count": bullets,
-    "quality_score": score,
-    "generated_at_utc": now.isoformat() + "Z",
-}
-report_path = reports_dir / f"report-{stamp}.json"
-report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+# --- write YAML front-matter report (.md)
+report_md = f"""---
+source_file: "{md_path}"
+topic_slug: "{topic_slug}"
+date: "{year}-{month}-{day}"
+word_count: {word_count}
+h2_count: {h2_count}
+h3_count: {h3_count}
+bullet_count: {bullets}
+quality_score: {score}
+generated_at_utc: "{now.isoformat()}Z"
+---
 
-# -------- AI editorial review (short, actionable) --------
+# Validation Summary
+
+- **File:** `{md_path.name}`
+- **Topic:** {topic_slug.replace('-', ' ').title()}
+- **Quality Score:** {score}/100
+- **Headings:** H2={h2_count}, H3={h3_count}
+- **Bullets:** {bullets}
+- **Word Count:** {word_count}
+
+*(Generated automatically by ContentVeritas validation pipeline.)*
+"""
+
+report_path = reports_dir / f"report-{stamp}.md"
+report_path.write_text(report_md, encoding="utf-8")
+
+# --- AI editorial review (unchanged)
 review_prompt = (
-    "You are a rigorous copy editor and SEO strategist. "
-    "Assess the following Markdown for clarity, persuasiveness, and SEO. "
+    "You are a concise editor. Assess the Markdown for clarity, persuasiveness, and SEO.\n"
     "Return:\n"
     "1) Top 5 improvements (bullets)\n"
     "2) SEO checklist (title/H2s/keywords/meta)\n"
     "3) Revised hero headline + subhead\n"
     "≤ 250 words.\n\n"
-    "----- BEGIN CONTENT -----\n"
-    f"{text}\n"
-    "----- END CONTENT -----"
+    f"----- BEGIN CONTENT -----\n{text}\n----- END CONTENT -----"
 )
 
 review_md = chat([
@@ -88,6 +91,6 @@ review_md = chat([
 review_path = reviews_dir / f"review-{stamp}.md"
 review_path.write_text(review_md, encoding="utf-8")
 
-print(f"✅ Wrote metrics: {report_path}")
-print(f"✅ Wrote review:  {review_path}")
+print(f"✅ Wrote YAML report: {report_path}")
+print(f"✅ Wrote review:      {review_path}")
 
