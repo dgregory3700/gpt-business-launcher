@@ -1,73 +1,47 @@
 # scripts/validate_content.py
-import os, re, json, pathlib, datetime
-from scripts.gpt_call import chat  # uses your OpenAI helper
+import json, glob, os, pathlib, datetime as dt
+from scripts.gpt_call import chat
 
-CONTENT_DIR = pathlib.Path("output/content")
-REPORTS_DIR = pathlib.Path("output/reports")
-REVIEWS_DIR = pathlib.Path("output/reviews")
+CONTENT_GLOB = "output/content/**/*.md"  # recurse
+REPORTS_DIR   = pathlib.Path("output/reports")
+REVIEWS_DIR   = pathlib.Path("output/reviews")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 REVIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-def latest_markdown(root: pathlib.Path):
-    files = list(root.rglob("*.md"))
+def newest_markdown() -> pathlib.Path | None:
+    files = [pathlib.Path(p) for p in glob.glob(CONTENT_GLOB, recursive=True)]
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
-md_file = latest_markdown(CONTENT_DIR)
-if not md_file:
-    print("ℹ️ No generated content found. Skipping validation.")
+md_path = newest_markdown()
+if not md_path:
+    print("No content files found for validation.")
     raise SystemExit(0)
 
-text = md_file.read_text(encoding="utf-8")
+text = md_path.read_text(encoding="utf-8")
+ts = dt.datetime.utcnow()
 
-# --- simple heuristic checks
-word_count = len(re.findall(r"\w+", text))
-h2_count   = len(re.findall(r"(?m)^##\s", text))
-h3_count   = len(re.findall(r"(?m)^###\s", text))
-bullets    = len(re.findall(r"(?m)^\s*[-*+]\s", text))
-
-score = 100
-if word_count < 300: score -= 20
-if h2_count   < 3:   score -= 20
-if bullets    < 3:   score -= 10
-if h3_count   < 1:   score -= 5
-score = max(0, min(100, score))
-
-stamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-
-# --- write a JSON metrics report
+# simple quantitative checks
 report = {
-    "file": str(md_file),
-    "word_count": word_count,
-    "h2_count": h2_count,
-    "h3_count": h3_count,
-    "bullet_count": bullets,
-    "quality_score": score,
-    "generated_at_utc": datetime.datetime.utcnow().isoformat() + "Z",
+    "file": str(md_path),
+    "bytes": len(text.encode("utf-8")),
+    "lines": len(text.splitlines()),
+    "has_h2": "## " in text,
+    "has_h3": "### " in text,
+    "generated_at_utc": ts.isoformat() + "Z",
 }
-report_path = REPORTS_DIR / f"report-{stamp}.json"
-report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-# --- AI editorial review (short, actionable)
-review_prompt = (
-    "You are a rigorous copy editor and SEO strategist. "
-    "Assess the following Markdown landing page draft for clarity, persuasiveness, and SEO. "
-    "Return a concise review with:\n"
-    "1) Top 5 improvements (bullet list)\n"
-    "2) SEO checklist (title, H2s, keywords, meta description)\n"
-    "3) A revised hero headline + subhead\n"
-    "Keep it under 250 words.\n\n"
-    "----- BEGIN CONTENT -----\n"
-    f"{text}\n"
-    "----- END CONTENT -----"
-)
+# LLM editorial review
+messages = [
+    {"role": "system", "content": "You are a precise editor. Be concise and actionable."},
+    {"role": "user", "content": f"Review the Markdown for clarity, structure, and SEO. Suggest 5 concrete improvements.\n\n---\n{text}"},
+]
+review_md = chat(messages)
 
-review_md = chat([
-    {"role": "system", "content": "You are a concise, no-nonsense content editor."},
-    {"role": "user", "content": review_prompt},
-])
+# write outputs next to generic reports/reviews (flat), or nest by date if you prefer
+rep_path = REPORTS_DIR / f"report-{ts:%Y%m%d-%H%M%S}.json"
+rev_path = REVIEWS_DIR / f"review-{ts:%Y%m%d-%H%M%S}.md"
+rep_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+rev_path.write_text(review_md, encoding="utf-8")
 
-review_path = REVIEWS_DIR / f"review-{stamp}.md"
-review_path.write_text(review_md, encoding="utf-8")
-
-print(f"✅ Wrote metrics: {report_path}")
-print(f"✅ Wrote review:  {review_path}")
+print(f"✅ Wrote report:  {rep_path}")
+print(f"✅ Wrote review:  {rev_path}")
